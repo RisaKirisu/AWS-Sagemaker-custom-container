@@ -240,10 +240,9 @@ def invocations_stream():
         )
 
     # Construct prompt from request input
-    inputs = data["inputs"]
+    prompt = data["prompt"]
     model_kargs = data["parameters"]
 
-    prompt = prompt_formatter[prompt_format](inputs[0][0]['content'], inputs[0][1]['content'])
     LOG_DEBUG("==== Prompt ====")
     LOG_DEBUG(prompt)
     
