@@ -7,6 +7,7 @@ import io
 import json
 import os
 import time
+from datetime import datetime
 
 import flask
 import torch
@@ -31,6 +32,14 @@ DEBUG = True
 model_dir = "/opt/ml/model/Llama2-70B-chat-exl2"
 gpu_split = [13, 13, 13, 13]
 prompt_format = "llama"
+
+def LOG(log: str):
+    print("{}:".format(datetime.now().strftime("%Y-%m-%d %H:%M:%S")), log)
+
+def LOG_DEBUG(log: str):
+    if DEBUG:
+        LOG(log)
+
 
 def load_model_args(model_kargs: dict = None) -> ExLlamaV2Sampler.Settings:
     settings = ExLlamaV2Sampler.Settings()
@@ -67,7 +76,7 @@ class Llama(object):
                 config.prepare()
                 # config.max_seq_len = 2048
 
-                print("Loading model: " + model_dir)
+                LOG("Loading model: " + model_dir)
                 cls.model = ExLlamaV2(config)
                 cls.tokenizer = ExLlamaV2Tokenizer(config)
                 cls.model.load(gpu_split)
@@ -222,10 +231,8 @@ def invocations_stream():
     # Parse input json
     if flask.request.content_type == "application/json":
         data = flask.request.get_json()
-        if DEBUG:
-            print("==== Got Request Streaming ====")
-            print(json.dumps(data, indent=2))
-            print("===============================")
+        LOG("==== Got Request Streaming ====")
+        LOG_DEBUG(json.dumps(data, indent=2))
 
     else:
         return flask.Response(
@@ -237,10 +244,8 @@ def invocations_stream():
     model_kargs = data["parameters"]
 
     prompt = prompt_formatter[prompt_format](inputs[0][0]['content'], inputs[0][1]['content'])
-    if DEBUG:
-        print("====== Prompt ======")
-        print(prompt)
-        print("====================")
+    LOG_DEBUG("==== Prompt ====")
+    LOG_DEBUG(prompt)
     
     # Get stream generator (model)
     generator = Llama.get_stream_generator(prompt, model_kargs)
@@ -248,11 +253,9 @@ def invocations_stream():
     max_tokens = model_kargs['max_tokens'] if model_kargs.get('max_tokens') is not None else 250
     print_timing = model_kargs['print_timing'] if model_kargs.get('print_timing') is not None else False
     
-    if DEBUG:
-        print("=== Start Generating ===")
+    LOG("==== Start Generating ====")
 
-    if print_timing:
-        start_time = time.time()
+    start_time = time.time()
 
     def stream_output_formatter(token_texts: list):
         token_texts = {"outputs": token_texts}
@@ -270,20 +273,16 @@ def invocations_stream():
             if eos:
                 break
             else:
-                if DEBUG:
-                    print(response_text, end='')
+                LOG_DEBUG(response_text, end='')
                 yield stream_output_formatter([response_text])
 
-        if DEBUG:
-            print('\n=============')                
-        yield stream_output_formatter(["\n\n"])
+        LOG('==== Finished Generating ====')
 
+        time_passed = time.time() - start_time
+        speed = (response_tokens + 1) / time_passed
+        LOG(f"(Response: {response_tokens} tokens, {speed:.2f} tokens/second)")
+        
         if print_timing:
-            time_passed = time.time() - start_time
-            speed = (response_tokens + 1) / time_passed
-            if DEBUG:
-                print(f"(Response: {response_tokens} tokens, {speed:.2f} tokens/second)")
-
-            yield stream_output_formatter([f"(Response: {response_tokens} tokens, {speed:.2f} tokens/second)"])
+            yield stream_output_formatter([f"\n\n(Response: {response_tokens} tokens, {speed:.2f} tokens/second)"])
     
     return flask.Response(flask.stream_with_context(generate()), status=200, mimetype="application/json", headers={'X-Accel-Buffering': 'no'})
